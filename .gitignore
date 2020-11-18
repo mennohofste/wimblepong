@@ -1,3 +1,7 @@
 __pycache__
+.vscode
+.venv
 
-policy.pth
+RL_course_project.pdf
+model.mdl
+fig.png
