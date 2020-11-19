@@ -1,6 +1,7 @@
 __pycache__
 .vscode
 .venv
+results
 
 RL_course_project.pdf
 model.mdl
