@@ -1,4 +1,6 @@
 #! .venv/bin/python
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import gym
 import numpy as np
@@ -7,50 +9,59 @@ import wimblepong
 from agent import Agent
 
 # Load the environment
-env = gym.make("WimblepongVisualSimpleAI-v0")
+# env = gym.make("WimblepongVisualSimpleAI-v0")
+env = gym.make("WimblepongSimpleAI-v0")
 player = Agent(env)
+# player.load_model('results/model_16.mdl')
 
-# location = 'model.mdl'
-# player.save_model(location)
-# player.load_model(location)
-
-episodes = 10
+episodes = 1000
 env.set_names(player.get_name())
 
-rew_running_avg = None
 rew_hist = []
-rew_running_avg_hist = []
-
-for i in range(episodes):
+rew_running_avg1 = -10
+rew_running_avg2 = -10
+rew_running_avg_hist1 = []
+rew_running_avg_hist2 = []
+ep = 0
+while True:
     rew_sum = 0
     done = False
     ob = env.reset()
 
+    # Run the episode itself
+    length = 0
     while not done:
         action, action_prob = player.get_action(ob)
-        prev_ob = ob
 
-        ob, rew, done, info = env.step(action.detach().numpy())
+        ob, rew, done, info = env.step(action)
+
+        player.store_outcome(ob, action, action_prob, rew)
+
         rew_sum += rew
-
-        player.store_outcome(prev_ob, ob, action_prob, rew, done)
-
+        length += 1
         # env.render()
 
-    print(f'Episode {i} finished. Total reward: {rew_sum}')
     rew_hist.append(rew_sum)
-    if rew_running_avg is None:
-        rew_running_avg = rew_sum
-    else:
-        rew_running_avg = 0.99 * rew_running_avg + 0.01 * rew_sum
-    rew_running_avg_hist.append(rew_running_avg)
+    rew_running_avg1 = 0.99 * rew_running_avg1 + 0.01 * rew_sum
+    rew_running_avg_hist1.append(rew_running_avg1)
+    rew_running_avg2 = 0.999 * rew_running_avg2 + 0.001 * rew_sum
+    rew_running_avg_hist2.append(rew_running_avg2)
+    ep += 1
 
-    player.update_policy()
+    if ep % 10 == 0:
+        print(f'Episode: {ep:>5}, length: {length:>5}, running1: {rew_running_avg1:>7}, running2: {rew_running_avg2:>7}')
 
-plt.plot(rew_hist)
-plt.plot(rew_running_avg_hist)
-plt.legend(["Reward", "Rolling average (100)"])
-plt.title("Reward history")
-plt.savefig(f'fig.png')
-print("Training finished.")
-player.save_model(f'model.mdl')
+    # Update the model based on the last batch_size episodes
+    batch_size = 200
+    if ep % batch_size == batch_size - 1:
+        player.update_policy()
+
+    save_rate = 1000
+    if ep % save_rate == 0:
+        plt.figure()
+        plt.plot(rew_running_avg_hist1, label='Rolling average (100)')
+        plt.plot(rew_running_avg_hist2, label='Rolling average (1000)')
+        plt.legend()
+        plt.title("Reward history")
+        plt.savefig(f'results/fig_{ep // save_rate}.png')
+        player.save_model(f'results/model_{ep // save_rate}.mdl')

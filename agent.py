@@ -4,73 +4,72 @@ import torch.nn.functional as F
 
 import pippio_utils
 
-class Policy(nn.Module):
-    def __init__(self):
+
+class Policy(torch.nn.Module):
+    def __init__(self, state_space, action_space):
         super().__init__()
-        self.fc1 = nn.Linear(10000, 512)
-        self.fc_action = nn.Linear(512, 3)
-        self.fc_value = nn.Linear(512, 1)
+        self.fc1 = nn.Linear(state_space, 12)
+        self.fc2 = nn.Linear(12, action_space)
 
     def forward(self, x):
         x = self.fc1(x)
         x = F.relu(x)
 
-        state_value = self.fc_value(x)
-
-        x = self.fc_action(x)
-        action_prob = F.softmax(x, dim=0)
-
-        return action_prob, state_value
+        x = self.fc2(x)
+        return F.softmax(x, dim=-1)
 
 
 class Agent(object):
     def __init__(self, env, player_id=1):
-        self.device = torch.device(
-            'cuda' if torch.cuda.is_available() else 'cpu')
-        self.policy = Policy().to(self.device)
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        state_space = pippio_utils.get_space_dim(env.observation_space)
+        self.action_space = pippio_utils.get_space_dim(env.action_space)
+        self.policy = Policy(state_space, self.action_space).to(self.device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=1e-3)
+
         self.player_id = player_id
         self.name = 'Pippi-O'
 
         self.gamma = 0.98
-        self.epsilon = 0.2
-
-        self.states = []
-        self.action_probs = []
+        self.observations = []
+        self.actions = []
         self.rewards = []
-        self.next_states = []
-        self.done = []
 
     def update_policy(self):
-        # Convert buffers to Torch tensors
-        action_probs = torch.stack(self.action_probs, dim=0).to(
-            self.device).squeeze(-1)
-        rewards = torch.stack(self.rewards, dim=0).to(self.device).squeeze(-1)
-        states = torch.stack(self.states, dim=0).to(self.device).squeeze(-1)
-        next_states = torch.stack(self.next_states, dim=0).to(
-            self.device).squeeze(-1)
-        done = torch.Tensor(self.done).to(self.device)
-        # Clear state transition buffers
-        self.states, self.action_probs, self.rewards = [], [], []
-        self.next_states, self.done = [], []
+        all_actions = torch.stack(self.actions, dim=0).to(self.device).squeeze(-1)
+        all_rewards = torch.stack(self.rewards, dim=0).to(self.device).squeeze(-1)
+        self.observations, self.actions, self.rewards = [], [], []
 
-        _, states_values = self.policy.forward(states)
-        states_values = states_values.squeeze(-1)
-        _, next_states_values = self.policy.forward(next_states)
-        next_states_values = (1 - done) * next_states_values.squeeze(-1)
-
-        critic_loss = F.mse_loss(
-            states_values, rewards + self.gamma * next_states_values.detach())
-
-        advantage = rewards + self.gamma * next_states_values - states_values
-
-        actor_loss = -torch.mean(action_probs * advantage.detach())
-
-        loss = actor_loss + critic_loss
+        # Get the discounted_rewards
+        discounted_rewards = pippio_utils.discount_rewards(all_rewards, self.gamma)
+        discounted_rewards -= torch.mean(discounted_rewards)
+        discounted_rewards /= torch.std(discounted_rewards)
+        
+        weighted_probs = all_actions * discounted_rewards
+        loss = torch.mean(weighted_probs)
         loss.backward()
 
         self.optimizer.step()
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad() 
+
+    def get_action(self, observation, evaluation=False):
+        x = torch.from_numpy(observation).float().to(self.device)
+        aprob = self.policy.forward(x)
+        if evaluation:
+            action = torch.argmax(aprob).item()
+        else:
+            dist = torch.distributions.Categorical(aprob)
+            action = dist.sample().item()
+        return action, aprob
+
+    def store_outcome(self, observation, action_taken, action_output, reward):
+        dist = torch.distributions.Categorical(action_output)
+        action_taken = torch.Tensor([action_taken]).to(self.device)
+        log_action_prob = -dist.log_prob(action_taken)
+
+        self.observations.append(observation)
+        self.actions.append(log_action_prob)
+        self.rewards.append(torch.Tensor([reward]))
 
     def get_name(self):
         """
@@ -92,36 +91,8 @@ class Agent(object):
         """
         torch.save(self.policy.state_dict(), location)
 
-    def get_action(self, ob, evaluation=False):
-        """
-        Interface function that returns the action that the agent took based
-        on the observation ob
-        """
-        x = torch.from_numpy(ob).float().to(self.device)
-        x = pippio_utils.preprocess(x)
-        act_prob, _ = self.policy.forward(x)
-        action_dist = torch.distributions.Categorical(act_prob)
-        if evaluation:
-            action = torch.argmax(act_prob)
-        else:
-            action = action_dist.sample()
-
-        act_log_prob = action_dist.log_prob(action)
-        return action, act_log_prob
-
     def reset(self):
         """
         Interface function that resets the agent
         """
         return
-
-    def store_outcome(self, state, next_state, action_prob, reward, done):
-        # Now we need to store some more information than with PG
-        state = pippio_utils.preprocess(state)
-        next_state = pippio_utils.preprocess(next_state)
-        
-        self.states.append(torch.from_numpy(state).float())
-        self.next_states.append(torch.from_numpy(next_state).float())
-        self.action_probs.append(action_prob)
-        self.rewards.append(torch.Tensor([reward]))
-        self.done.append(done)
