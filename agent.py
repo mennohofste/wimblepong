@@ -64,8 +64,9 @@ class Agent(object):
         
         # Calculate the action probabilities and state values and convert them
         aprobs, state_values = self.policy.forward(states)
-        old_aprobs = torch.sum(aprobs * F.one_hot(actions), dim=1).detach()
+        aprobs = torch.sum(aprobs * F.one_hot(actions), dim=1)
         state_values = state_values.squeeze(-1)
+        old_aprobs = aprobs.detach()
 
         _, next_state_values = self.policy.forward(next_states)
         next_state_values = (1 - dones) * next_state_values.squeeze(-1)
@@ -73,16 +74,11 @@ class Agent(object):
         # Advantage
         advantage = rewards + self.gamma * next_state_values - state_values
 
-        actor_losses = []
-        for _ in range(5):# TODO: how many time do we want to iterate over this?
-            aprobs, _ = self.policy.forward(states)
-            aprobs = torch.sum(aprobs * F.one_hot(actions), dim=1)
-            # # Actor loss
-            ratio = (aprobs / old_aprobs) * advantage.detach()
-            ratio_clipped = torch.clip(ratio, 1 - self.epsilon, 1 + self.epsilon)
-            ratio_clipped = ratio_clipped * advantage.detach()
-            actor_losses.append(-torch.min(ratio, ratio_clipped).mean())
-        actor_loss = torch.stack(actor_losses).mean()
+        # Actor loss
+        ratio = (aprobs / old_aprobs) * advantage.detach()
+        ratio_clipped = torch.clip(ratio, 1 - self.epsilon, 1 + self.epsilon)
+        ratio_clipped = ratio_clipped * advantage.detach()
+        actor_loss = -torch.min(ratio, ratio_clipped).mean()
         
         # Critic loss
         critic_loss = advantage.pow(2).mean()
