@@ -1,53 +1,108 @@
-#! .venv/bin/python
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import gym
-import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils import tensorboard
-from pippio_utils import preprocess
-from pippio_utils import tensify
+import random
 
 import wimblepong
-from agent import Agent
+from policy import Policy
 
-writer = tensorboard.SummaryWriter()
-# Load the environment
-env = gym.make("WimblepongVisualSimpleAI-v0")
-player = Agent(env, writer=writer)
+# Learning parameters
+EPS_PER_EPOCH = 100
+MAX_TIMESTEPS = 500
+LEARNING_RATE = 1e-3
 
-# player.load_model('results/model_16.mdl')
+def collect_data():
+    global global_n
+    
+    d_obs_history, action_history, action_prob_history, reward_history = [], [], [], []
+    for _ in range(EPS_PER_EPOCH):
+        obs, prev_obs = env.reset(), None
+        for t in range(MAX_TIMESTEPS):
+            d_obs = policy.pre_process(obs, prev_obs)
+            with torch.no_grad():
+                action, action_prob = policy.get_action(d_obs, False)
 
-env.set_names(player.get_name())
+            prev_obs = obs
+            obs, reward, done, _ = env.step(action)
 
-global_iter = 0
-episode_n = 0
-while True:
-    episode_n += 1
+            d_obs_history.append(d_obs)
+            action_history.append(action)
+            action_prob_history.append(action_prob)
+            reward_history.append(reward)
 
-    done = False
-    reward_sum = 0
-    obs = env.reset()
-    next_state = preprocess(obs, None)
-    while not done:
-        prev_obs = obs
-        state = next_state
-        action = player.get_action(prev_obs, False)
-        obs, reward, done, info = env.step(action)
-        next_state = preprocess(obs, prev_obs)
+            if done:
+                break
 
-        player.store_outcome(action, state, next_state, reward, done)
+        writer.add_scalar('reward/episode_reward', sum(reward_history[-t:]), global_n)
+        writer.add_scalar('reward/episode_length', t, global_n)
+        global_n += 1
+    
+    return [d_obs_history, action_history, action_prob_history, reward_history]
 
-        reward_sum += reward
-        global_iter += 1
+def compute_advantages(reward_history):
+    # compute advantage
+    R = 0
+    discounted_rewards = torch.zeros(len(reward_history))
 
-    writer.add_scalar('reward/episode_reward', reward_sum, global_iter)
+    for i, r in enumerate(reward_history[::-1]):
+        if r != 0:  # scored/lost a point in pong, so reset reward sum
+            R = 0
+        R = r + policy.gamma * R
+        discounted_rewards[i] = R
 
-    # Update the model based on the last batch_size episodes
-    batch_size = 100
-    if episode_n % batch_size == batch_size - 1:
-        player.update_policy()
+    discounted_rewards -= discounted_rewards.mean()
+    discounted_rewards /= discounted_rewards.std()
+    return discounted_rewards
 
-    save_rate = 1000
-    if episode_n % save_rate == 0:
-        player.save_model(f'results/model_{episode_n // save_rate}.mdl')
+def update_policy(data):
+    d_obs_history = data.pop(0)
+    action_history = data.pop(0)
+    action_prob_history = data.pop(0)
+    advantage_history = data.pop(0)
+
+    # update policy
+    for _ in range(10):
+        n_batch = len(action_history) // 4
+        idxs = random.sample(range(len(action_history)), n_batch)
+        d_obs_batch = torch.stack([d_obs_history[idx] for idx in idxs])
+        action_batch = torch.LongTensor([action_history[idx] for idx in idxs])
+        action_prob_batch = torch.FloatTensor([action_prob_history[idx] for idx in idxs])
+        advantage_batch = torch.FloatTensor([advantage_history[idx] for idx in idxs])
+
+        opt.zero_grad()
+        loss = policy.get_loss(d_obs_batch, action_batch, action_prob_batch, advantage_batch)
+        loss.backward()
+        opt.step()
+
+def train_iteration(i):
+    data = collect_data()
+    reward_history = data.pop(3)
+    advantage_history = compute_advantages(reward_history)
+    data.append(advantage_history)
+    writer.add_scalar('reward/average_reward', sum(reward_history) / EPS_PER_EPOCH, i)
+    writer.add_scalar('reward/average_ep_len', len(reward_history) / EPS_PER_EPOCH, i)
+    writer.add_scalar('loss/advantage', advantage_history.mean(), global_n)
+    update_policy(data)
+
+if __name__ == "__main__":
+    writer = tensorboard.SummaryWriter()
+    global_n = 0
+
+    env = gym.make("WimblepongVisualSimpleAI-v0")
+    policy = Policy()
+    opt = torch.optim.Adam(policy.parameters(), lr=LEARNING_RATE)
+
+    model_number = -1
+    if model_number != -1:
+        policy.load_state_dict(torch.load(f'results/new_{model_number}.mdl'))
+
+    i = 0
+    while True:
+        train_iteration(i)
+        if i % 10 == 0:
+            torch.save(policy.state_dict(), f'results/model_{i}.mdl')
+        i += 1
+
+    env.close()
