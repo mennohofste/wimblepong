@@ -14,9 +14,9 @@ class Policy(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
         self.size = 9 * 9 * 64
-        
+
         self.fc1 = nn.Linear(self.size, 512)
-        self.fc2 = nn.Linear(512, 2)
+        self.fc2 = nn.Linear(512, 3)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -31,7 +31,7 @@ class Policy(nn.Module):
         prev_x = self.state_to_tensor(prev_x)
         prev2_x = self.state_to_tensor(prev2_x)
         prev3_x = self.state_to_tensor(prev3_x)
-        output = torch.stack([x, prev_x, prev2_x, prev3_x,])
+        output = torch.stack([x, prev_x, prev2_x, prev3_x])
         return output.unsqueeze(0)
 
     def state_to_tensor(self, x):
@@ -45,15 +45,17 @@ class Policy(nn.Module):
 
     def get_loss(self, states, action, action_prob_old, advantage):
         action_prob = self.forward(states)
-        action_prob = torch.sum(action_prob * F.one_hot(action, 2), dim=1)
+        action_prob = torch.sum(action_prob * F.one_hot(action, 3), dim=1)
 
-        entropy = action_prob * action_prob_old.log() + \
-            (1 - action_prob) * action_prob_old.log()
+        ent1 = action_prob * action_prob_old.log()
+        ent2 = (1 - action_prob) * action_prob_old.log()
+        entropy = - (ent1 + ent2)
+
         r = action_prob / action_prob_old
         loss1 = r * advantage
         loss2 = torch.clip(r, 1 - EPS_CLIP, 1 + EPS_CLIP) * advantage
         loss = torch.min(loss1, loss2)
-        loss = torch.mean(loss - BETA * entropy)
+        loss = torch.mean(loss + BETA * entropy)
         return -loss
 
     def get_action(self, state):
