@@ -13,7 +13,7 @@ class Policy(nn.Module):
         self.size = 9 * 9 * 64
         
         self.fc1 = nn.Linear(self.size, 512)
-        self.fc2 = nn.Linear(512, 2)
+        self.fc2 = nn.Linear(512, 3)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -31,19 +31,19 @@ class Agent(object):
         self.player_id = player_id
         self.name = 'Pippi-O'
 
-        self.x_prev = torch.zeros((100, 100))
-        self.x_prev2 = torch.zeros((100, 100))
-        self.x_prev3 = torch.zeros((100, 100))
+        self.prev_x = torch.zeros((100, 100))
+        self.prev2_x = torch.zeros((100, 100))
+        self.prev3_x = torch.zeros((100, 100))
 
     def get_action(self, obs):
-        x = state_to_tensor(obs)
-        state = torch.stack([x, prev_x, prev2_x, prev3_x,]).unsqueeze(0)
-        prev_x, prev2_x, prev3_x = x, prev_x, prev2_x
+        x = self.state_to_tensor(obs)
+        state = torch.stack([x, self.prev_x, self.prev2_x, self.prev3_x]).unsqueeze(0)
+        self.prev_x, self.prev2_x, self.prev3_x = x, self.prev_x, self.prev2_x
 
         with torch.no_grad():
             probs = self.policy.forward(state)
 
-        return int(torch.argmax(probs) + 1)
+        return int(torch.argmax(probs))
 
     def pre_process(self, x, prev_x, prev2_x, prev3_x):
         output = torch.stack([x, prev_x, prev2_x, prev3_x,])
