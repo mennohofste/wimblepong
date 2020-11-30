@@ -10,7 +10,7 @@ from policy import Policy
 
 # Learning parameters
 GAMMA = 0.99
-EPS_PER_ITERATION = 10
+EPS_PER_ITERATION = 20
 EPOCHS = 5
 MAX_TIMESTEPS = 500
 LEARNING_RATE = 1e-4
@@ -85,13 +85,11 @@ if __name__ == "__main__":
     global_n = 0
 
     # env = gym.make("CartPole-v0")
-    env = gym.make("WimblepongVisualSimpleAI-v0")
+    env = gym.make("WimblepongVisualImprovedAI-v0")
     policy = Policy()
     opt = torch.optim.Adam(policy.parameters(), lr=LEARNING_RATE)
 
-    model_number = -1
-    if model_number != -1:
-        policy.load_state_dict(torch.load(f'results/downsized_model_{model_number}.mdl'))
+    policy.load_state_dict(torch.load(f'results/model.mdl'))
 
     i = 0
     while True:
@@ -105,7 +103,7 @@ if __name__ == "__main__":
         update_policy(data)
 
         if i % 100 == 0:
-            torch.save(policy.state_dict(), f'results/model_{i}.mdl')
+            torch.save(policy.state_dict(), f'results/model_more_eps_{i}.mdl')
         i += 1
 
     env.close()
