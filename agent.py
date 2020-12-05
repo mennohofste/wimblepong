@@ -36,7 +36,7 @@ class Agent(object):
         self.prev3_x = torch.zeros((100, 100))
 
     def get_action(self, obs):
-        x = self.state_to_tensor(obs)
+        x = self.state_to_tensor(obs.copy())
         state = torch.stack([x, self.prev_x, self.prev2_x, self.prev3_x]).unsqueeze(0)
         self.prev_x, self.prev2_x, self.prev3_x = x, self.prev_x, self.prev2_x
 
@@ -64,7 +64,7 @@ class Agent(object):
         '''
         return self.name
 
-    def load_model(self, location):
+    def load_model(self, location='model.mdl'):
         '''
         Interface function to loads a trained model
         '''

@@ -28,10 +28,10 @@ episodes = 100000
 # Define the player IDs for both SimpleAI agents
 player_id = 1
 opponent_id = 3 - player_id
-opponent = wimblepong.ImprovedAi(env, opponent_id)
-# opponent = wimblepong.SimpleAi(env, opponent_id)
+# opponent = wimblepong.ImprovedAi(env, opponent_id)
+opponent = wimblepong.SimpleAi(env, opponent_id)
 player = Agent(env, player_id)
-player.load_model('results/model_follow_opponent.mdl')
+player.load_model('results/model_simple_2000.mdl')
 
 # Set the names for both SimpleAIs
 env.set_names(player.get_name(), opponent.get_name())
