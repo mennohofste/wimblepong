@@ -25,7 +25,7 @@ class Policy(nn.Module):
 
 
 class Agent(object):
-    def __init__(self, env, player_id=1):
+    def __init__(self, player_id=1):
         self.device = 'cpu'
         self.policy = Policy().to(self.device)
         self.player_id = player_id
