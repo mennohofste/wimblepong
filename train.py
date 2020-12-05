@@ -7,10 +7,11 @@ import random
 
 import wimblepong
 from policy import Policy
+from agent import Agent
 
 # Learning parameters
 GAMMA = 0.99
-EPS_PER_ITERATION = 20
+EPS_PER_ITERATION = 10
 EPOCHS = 5
 MAX_TIMESTEPS = 500
 LEARNING_RATE = 1e-4
@@ -20,7 +21,8 @@ def collect_data():
     
     state_history, action_history, action_prob_history, reward_history = [], [], [], []
     for _ in range(EPS_PER_ITERATION):
-        obs, prev_obs, prev2_obs, prev3_obs = env.reset(), None, None, None
+        obs, opp_obs = env.reset()
+        prev_obs, prev2_obs, prev3_obs = None, None, None
 
         for t in range(MAX_TIMESTEPS):
             state = policy.pre_process(obs, prev_obs, prev2_obs, prev3_obs)
@@ -28,7 +30,10 @@ def collect_data():
 
             with torch.no_grad():
                 action, action_prob = policy.get_action(state)
-            obs, reward, done, _ = env.step(action)
+
+            opp_act = opponent.get_action()
+            # opp_act = opponent.get_action(opp_obs)
+            (obs, opp_obs), (reward, _), done, _ = env.step((action, opp_act))
 
             state_history.append(state)
             action_history.append(action)
@@ -85,11 +90,16 @@ if __name__ == "__main__":
     global_n = 0
 
     # env = gym.make("CartPole-v0")
-    env = gym.make("WimblepongVisualImprovedAI-v0")
+    env = gym.make("WimblepongVisualMultiplayer-v0")
     policy = Policy()
+
+    opponent = wimblepong.SimpleAi(env, 2)
+    # opponent = Agent(env)
+    # opponent.load_model('results/model.mdl')
+
     opt = torch.optim.Adam(policy.parameters(), lr=LEARNING_RATE)
 
-    policy.load_state_dict(torch.load(f'results/model.mdl'))
+    policy.load_state_dict(torch.load(f'results/model_best_400.mdl'))
 
     i = 0
     while True:
@@ -103,7 +113,7 @@ if __name__ == "__main__":
         update_policy(data)
 
         if i % 100 == 0:
-            torch.save(policy.state_dict(), f'results/model_more_eps_{i}.mdl')
+            torch.save(policy.state_dict(), f'results/model_simple_{i}.mdl')
         i += 1
 
     env.close()
